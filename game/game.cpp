@@ -2,6 +2,8 @@
 #include "scripts/free_look.hpp"
 #include "scripts/orbit.hpp"
 
+#include <cstdio>
+
 buckit::buckit()
   : app_(std::make_unique<application>("Bucket Game"))
 {
@@ -32,6 +34,12 @@ void buckit::awake()
 
 void buckit::start()
 {
+  fps_.on_update([this](int fps) {
+    char title[64];
+    std::snprintf(title, sizeof(title), "Bucket Game  |  %d FPS", fps);
+    glfwSetWindowTitle(app_->get_window().native(), title);
+  });
+
   camera_.set_position({ 0.0f, 0.0f, 3.0f });
 
   entity player = scene_.create_entity();
@@ -46,6 +54,7 @@ void buckit::start()
 void buckit::update(double dt)
 {
   scene_.update(static_cast<float>(dt));
+  fps_.tick(dt);
 }
 
 void buckit::render()

@@ -8,6 +8,7 @@
 #include "core/window.hpp"
 #include "core/timer.hpp"
 #include "core/input.hpp"
+#include "core/fps_counter.hpp"
 #include "core/application.hpp"
 #include "core/camera.hpp"
 

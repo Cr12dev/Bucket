@@ -26,4 +26,6 @@ private:
   texture checker_;
   camera camera_;
   scene scene_;
+
+  fps_counter fps_;
 };
