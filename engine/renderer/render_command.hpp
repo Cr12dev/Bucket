@@ -10,4 +10,7 @@ public:
   static void set_viewport(int x, int y, int w, int h);
   static void draw_indexed(const mesh& m);
   static void draw_arrays(const vertex_array& va, int count);
+
+  // debug drawing
+  static void draw_grid(int divisions, float spacing);
 };
