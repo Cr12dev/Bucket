@@ -1,6 +1,4 @@
 build/
-stderr.txt
-stdout.txt
 *.exe
 *.obj
 *.lib
@@ -18,4 +16,6 @@ Makefile
 .DS_Store
 Thumbs.db
 opencode.json
+AGENTS.md
+plans.md
 
