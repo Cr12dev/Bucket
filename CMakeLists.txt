@@ -60,13 +60,17 @@ file(GLOB_RECURSE GAME_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/game/*.cpp"
 )
 
+string(RANDOM LENGTH 4 ALPHABET 0123456789 GAME_NAME_SUFFIX)
+
 add_executable(game ${GAME_SOURCES})
 target_link_libraries(game PRIVATE bucket_engine)
 target_include_directories(game PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/game")
 
 set_target_properties(game PROPERTIES
+  OUTPUT_NAME "game${GAME_NAME_SUFFIX}"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+message(STATUS "Game executable: game${GAME_NAME_SUFFIX}.exe")
 
 # --- Editor executable ---
 file(GLOB_RECURSE EDITOR_SOURCES
