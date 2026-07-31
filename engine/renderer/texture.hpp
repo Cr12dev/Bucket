@@ -21,6 +21,7 @@ public:
   int height() const { return h_; }
 
   static texture checkerboard(int size = 64, int checks = 8);
+  static texture white();
 
 private:
   GLuint id_ = 0;

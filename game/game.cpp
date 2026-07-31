@@ -42,13 +42,43 @@ void buckit::start()
 
   camera_.set_position({ 0.0f, 0.0f, 3.0f });
 
+  // bind the level map; everything saved in the editor is replicated here
+  bool map_loaded = load_map("level.lev");
+
   entity player = scene_.create_entity();
   scene_.add_component<transform>(player);
   scene_.add_behaviour<free_look>(player, &camera_);
 
-  entity obj = scene_.create_entity();
-  scene_.add_component<transform>(obj);
-  scene_.add_behaviour<orbit>(obj);
+  if (!map_loaded) {
+    entity obj = scene_.create_entity();
+    scene_.add_component<transform>(obj);
+    scene_.add_behaviour<orbit>(obj);
+  }
+
+  // the map is now bound to the game: edit objects by their id
+  if (transform* obj = object(0)) {
+    obj->position.y = 1.0f;
+  }
+
+  std::printf("[bucket] scene objects:\n");
+  scene_.for_each<transform>([&](entity e, transform& t) {
+    std::printf("  [%u] pos=(%.2f, %.2f, %.2f)\n",
+                e.id, t.position.x, t.position.y, t.position.z);
+  });
+}
+
+bool buckit::load_map(const char* path)
+{
+  bool ok = scene_.load<transform, tag>(path);
+  if (!ok) {
+    std::printf("[bucket] could not load map '%s'\n", path);
+  }
+  return ok;
+}
+
+transform* buckit::object(uint32_t id)
+{
+  return scene_.get_component<transform>(entity{ id, 0 });
 }
 
 void buckit::update(double dt)

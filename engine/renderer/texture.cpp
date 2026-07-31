@@ -99,3 +99,18 @@ texture texture::checkerboard(int size, int checks)
 
   return t;
 }
+
+texture texture::white()
+{
+  texture t;
+  t.w_ = t.h_ = 1;
+
+  unsigned char pixel[] = { 255, 255, 255, 255 };
+  glGenTextures(1, &t.id_);
+  glBindTexture(GL_TEXTURE_2D, t.id_);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+  return t;
+}

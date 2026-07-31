@@ -24,6 +24,7 @@ include(FetchGLFW)
 include(FetchGLM)
 include(FetchSTB)
 include(FetchImGui)
+include(FetchImGuizmo)
 
 # --- Engine (static library) ---
 file(GLOB_RECURSE ENGINE_SOURCES
@@ -74,7 +75,7 @@ file(GLOB_RECURSE EDITOR_SOURCES
 
 if(EDITOR_SOURCES)
   add_executable(editor ${EDITOR_SOURCES})
-  target_link_libraries(editor PRIVATE bucket_engine imgui)
+  target_link_libraries(editor PRIVATE bucket_engine imgui imguizmo)
   target_include_directories(editor PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/editor")
 
   set_target_properties(editor PROPERTIES
