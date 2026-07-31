@@ -16,6 +16,7 @@ public:
 
   static mesh cube();
   static mesh quad();
+  static mesh fullscreen_quad();
 
 private:
   vertex_array vao_;

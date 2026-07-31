@@ -28,11 +28,46 @@ void render_command::draw_arrays(const vertex_array& va, int count)
   glDrawArrays(GL_TRIANGLES, 0, count);
 }
 
-void render_command::draw_grid(int divisions, float spacing)
+void render_command::draw_grid(int divisions, float spacing, const float* view_proj, const float* color)
 {
+  static const char* grid_vert_src =
+    "#version 330 core\n"
+    "layout (location = 0) in vec3 a_position;\n"
+    "uniform mat4 u_view_proj;\n"
+    "void main() { gl_Position = u_view_proj * vec4(a_position, 1.0); }\n";
+
+  static const char* grid_frag_src =
+    "#version 330 core\n"
+    "uniform vec4 u_color;\n"
+    "out vec4 frag_color;\n"
+    "void main() { frag_color = u_color; }\n";
+
+  static GLuint grid_program = 0;
+  static GLint grid_vp_loc = -1;
+  static GLint grid_color_loc = -1;
+
   static unsigned int grid_vao = 0;
   static unsigned int grid_vbo = 0;
   static int grid_count = 0;
+
+  if (!grid_program) {
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &grid_vert_src, nullptr);
+    glCompileShader(vs);
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &grid_frag_src, nullptr);
+    glCompileShader(fs);
+
+    grid_program = glCreateProgram();
+    glAttachShader(grid_program, vs);
+    glAttachShader(grid_program, fs);
+    glLinkProgram(grid_program);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    grid_vp_loc = glGetUniformLocation(grid_program, "u_view_proj");
+    grid_color_loc = glGetUniformLocation(grid_program, "u_color");
+  }
 
   if (!grid_vao) {
     float half = divisions * spacing * 0.5f;
@@ -40,10 +75,8 @@ void render_command::draw_grid(int divisions, float spacing)
 
     for (int i = 0; i <= divisions; ++i) {
       float t = -half + i * spacing;
-      // X-axis line
       verts.push_back(t); verts.push_back(0.0f); verts.push_back(-half);
       verts.push_back(t); verts.push_back(0.0f); verts.push_back(half);
-      // Z-axis line
       verts.push_back(-half); verts.push_back(0.0f); verts.push_back(t);
       verts.push_back(half);  verts.push_back(0.0f); verts.push_back(t);
     }
@@ -60,6 +93,10 @@ void render_command::draw_grid(int divisions, float spacing)
 
     grid_count = static_cast<int>(verts.size()) / 3;
   }
+
+  glUseProgram(grid_program);
+  glUniformMatrix4fv(grid_vp_loc, 1, GL_FALSE, view_proj);
+  glUniform4fv(grid_color_loc, 1, color);
 
   glBindVertexArray(grid_vao);
   glDrawArrays(GL_LINES, 0, grid_count);

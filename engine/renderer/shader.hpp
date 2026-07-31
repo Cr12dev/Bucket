@@ -24,6 +24,7 @@ public:
 
   void set_uniform(const std::string& name, int value);
   void set_uniform(const std::string& name, float value);
+  void set_uniform(const std::string& name, float v0, float v1, float v2);
   void set_uniform(const std::string& name, float v0, float v1, float v2, float v3);
   void set_uniform(const std::string& name, const float* matrix4x4);
 

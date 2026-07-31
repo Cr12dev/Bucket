@@ -12,5 +12,5 @@ public:
   static void draw_arrays(const vertex_array& va, int count);
 
   // debug drawing
-  static void draw_grid(int divisions, float spacing);
+  static void draw_grid(int divisions, float spacing, const float* view_proj, const float* color);
 };

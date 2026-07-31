@@ -27,6 +27,7 @@
 #include "core/ecs/behaviour_component.hpp"
 #include "core/ecs/components/transform.hpp"
 #include "core/ecs/components/tag.hpp"
+#include "core/ecs/components/light.hpp"
 
 // -- renderer --
 #include "renderer/shader.hpp"
@@ -36,6 +37,8 @@
 #include "renderer/texture.hpp"
 #include "renderer/material.hpp"
 #include "renderer/render_command.hpp"
+#include "renderer/lighting.hpp"
+#include "renderer/skybox.hpp"
 
 // -- game loop --
 #include "core/game_loop.hpp"

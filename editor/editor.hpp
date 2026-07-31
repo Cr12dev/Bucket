@@ -11,6 +11,7 @@
 #include "camera.hpp"
 #include "core/ecs/scene.hpp"
 #include "core/ecs/entity.hpp"
+#include "skybox.hpp"
 
 class editor {
 public:
@@ -44,11 +45,13 @@ private:
 
   std::unique_ptr<application> app_;
   std::shared_ptr<shader> default_shader_;
+  std::shared_ptr<shader> lighting_shader_;
   mesh cube_mesh_;
   texture white_tex_;
   camera camera_;
   scene scene_;
   entity selected_ = null_entity();
+  skybox skybox_;
 
   // viewport framebuffer
   unsigned int fbo_ = 0;

@@ -77,3 +77,16 @@ mesh mesh::quad()
   std::vector<unsigned int> idx = { 0,1,2, 0,2,3 };
   return mesh(verts, idx);
 }
+
+mesh mesh::fullscreen_quad()
+{
+  std::vector<vertex> verts = {
+    {{-1.0f, -1.0f, 0.0f}, {0, 0, 1}, {0, 0}},
+    {{ 1.0f, -1.0f, 0.0f}, {0, 0, 1}, {1, 0}},
+    {{ 1.0f,  1.0f, 0.0f}, {0, 0, 1}, {1, 1}},
+    {{-1.0f,  1.0f, 0.0f}, {0, 0, 1}, {0, 1}},
+  };
+
+  std::vector<unsigned int> idx = { 0,1,2, 0,2,3 };
+  return mesh(verts, idx);
+}

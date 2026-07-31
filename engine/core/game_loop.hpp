@@ -8,6 +8,7 @@
 #include "camera.hpp"
 #include "application.hpp"
 #include "core/ecs/scene.hpp"
+#include "skybox.hpp"
 
 class buckit {
 public:
@@ -28,13 +29,21 @@ private:
   void start();
   void update(double dt);
   void render();
+  void select_shader(int index);
 
   std::unique_ptr<application> app_;
   std::shared_ptr<shader> default_shader_;
+  std::shared_ptr<shader> basic_shader_;
+  std::shared_ptr<shader> checker_shader_;
+  std::shared_ptr<shader> pulse_shader_;
+  std::shared_ptr<shader> lighting_shader_;
+  shader* active_shader_ = nullptr;
+  float elapsed_ = 0.0f;
   mesh cube_mesh_;
   texture checker_;
   camera camera_;
   scene scene_;
+  skybox skybox_;
 
   fps_counter fps_;
 };

@@ -1,0 +1,27 @@
+#include "skybox.hpp"
+#include "camera.hpp"
+
+void skybox::init()
+{
+  shader_ = std::make_shared<shader>("shaders/sky.vert", "shaders/sky.frag");
+  quad_ = mesh::fullscreen_quad();
+}
+
+void skybox::render(const camera& cam) const
+{
+  if (!shader_ || !quad_.valid()) return;
+
+  mat4 inv_view_proj = cam.view_projection().inverse();
+
+  glDepthMask(GL_FALSE);
+
+  shader_->bind();
+  shader_->set_uniform("u_inv_view_proj", inv_view_proj.data());
+  shader_->set_uniform("u_camera_pos", cam.position().x, cam.position().y, cam.position().z);
+  shader_->set_uniform("u_sun_dir", sun_dir_.x, sun_dir_.y, sun_dir_.z);
+
+  quad_.bind();
+  glDrawElements(GL_TRIANGLES, quad_.index_count(), GL_UNSIGNED_INT, nullptr);
+
+  glDepthMask(GL_TRUE);
+}

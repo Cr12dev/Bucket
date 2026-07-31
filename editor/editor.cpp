@@ -56,8 +56,12 @@ void editor::awake()
   default_shader_ = std::make_shared<shader>(
     "shaders/default.vert", "shaders/default.frag"
   );
+  lighting_shader_ = std::make_shared<shader>(
+    "shaders/lighting.vert", "shaders/lighting.frag"
+  );
   cube_mesh_ = mesh::cube();
   white_tex_ = texture::white();
+  skybox_.init();
 }
 
 void editor::start()
@@ -73,6 +77,27 @@ void editor::start()
     auto& t = scene_.add_component<transform>(e);
     t.position.x = static_cast<float>(i) * 1.5f - 1.5f;
     scene_.add_component<tag>(e, names[i]);
+  }
+
+  // sun (directional)
+  {
+    entity sun = scene_.create_entity();
+    light& l = scene_.add_component<light>(sun);
+    l.type = light_type::directional;
+    l.color = { 1.0f, 0.95f, 0.85f };
+    l.intensity = 1.2f;
+    l.direction = { 0.3f, -0.8f, -0.5f };
+  }
+
+  // point light
+  {
+    entity pt = scene_.create_entity();
+    light& l = scene_.add_component<light>(pt);
+    l.type = light_type::point;
+    l.color = { 0.4f, 0.7f, 1.0f };
+    l.intensity = 4.0f;
+    l.position = { 1.2f, 1.0f, 0.8f };
+    l.range = 6.0f;
   }
 }
 
@@ -360,25 +385,50 @@ void editor::build_viewport()
   render_command::set_clear_color(0.16f, 0.16f, 0.20f, 1.0f);
   render_command::clear();
 
+  camera_.set_perspective(60.0f, static_cast<float>(vp_w_) / vp_h_, 0.1f, 100.0f);
+
+  // procedural skybox (atmosphere)
+  skybox_.render(camera_);
+
+  // grid
   if (show_grid_) {
-    render_command::draw_grid(20, 1.0f);
+    float grid_color[4] = { 0.35f, 0.38f, 0.45f, 1.0f };
+    render_command::draw_grid(20, 1.0f, camera_.view_projection().data(), grid_color);
   }
 
-  camera_.set_perspective(60.0f, static_cast<float>(vp_w_) / vp_h_, 0.1f, 100.0f);
-  default_shader_->bind();
-  default_shader_->set_uniform("u_view_proj", camera_.view_projection().data());
+  // gather lights
+  lighting lights;
+  scene_.for_each<light>([&](entity e, light& l) {
+    (void)e;
+    if (l.type == light_type::directional) {
+      skybox_.set_sun_dir(-l.direction.normalized());
+    }
+    lights.add(l);
+  });
+
+  // lit objects
+  lighting_shader_->bind();
+  lighting_shader_->set_uniform("u_view_proj", camera_.view_projection().data());
+  lighting_shader_->set_uniform("u_view_pos", camera_.position().x,
+                                camera_.position().y, camera_.position().z);
+  lighting_shader_->set_uniform("u_ambient", 0.25f, 0.26f, 0.30f);
+  lighting_shader_->set_uniform("u_fog_color", 0.68f, 0.74f, 0.80f);
+  lighting_shader_->set_uniform("u_fog_start", 20.0f);
+  lighting_shader_->set_uniform("u_fog_end", 60.0f);
+  lights.upload(*lighting_shader_);
+
   white_tex_.bind(0);
-  default_shader_->set_uniform("u_albedo", 0);
+  lighting_shader_->set_uniform("u_albedo", 0);
 
   scene_.for_each<transform>([&](entity e, transform& t) {
     bool sel = (e == selected_);
-    default_shader_->set_uniform("u_color",
+    lighting_shader_->set_uniform("u_color",
       sel ? 1.0f : 0.6f,
       sel ? 0.8f : 0.6f,
       sel ? 0.2f : 0.7f,
       1.0f);
     mat4 model = t.matrix();
-    default_shader_->set_uniform("u_model", model.data());
+    lighting_shader_->set_uniform("u_model", model.data());
     render_command::draw_indexed(cube_mesh_);
   });
 
@@ -538,6 +588,31 @@ void editor::build_properties()
     }
   }
 
+  if (light* l = scene_.get_component<light>(selected_)) {
+    if (ImGui::CollapsingHeader("Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+      const char* types[] = { "Directional", "Point", "Spot" };
+      int current = static_cast<int>(l->type);
+      if (ImGui::Combo("Type", &current, types, 3)) {
+        l->type = static_cast<light_type>(current);
+      }
+      ImGui::ColorEdit3("Color", &l->color.x);
+      ImGui::DragFloat("Intensity", &l->intensity, 0.05f, 0.0f, 100.0f);
+      ImGui::DragFloat3("Position", &l->position.x, 0.05f);
+      ImGui::DragFloat3("Direction", &l->direction.x, 0.05f);
+      ImGui::DragFloat("Range", &l->range, 0.1f, 0.0f, 1000.0f);
+      if (l->type == light_type::spot) {
+        float inner_deg = rad_to_deg(std::acos(l->spot_cos_inner));
+        float outer_deg = rad_to_deg(std::acos(l->spot_cos_outer));
+        if (ImGui::SliderFloat("Inner Angle", &inner_deg, 1.0f, 89.0f)) {
+          l->spot_cos_inner = std::cos(deg_to_rad(inner_deg));
+        }
+        if (ImGui::SliderFloat("Outer Angle", &outer_deg, 1.0f, 90.0f)) {
+          l->spot_cos_outer = std::cos(deg_to_rad(outer_deg));
+        }
+      }
+    }
+  }
+
   // add component
   ImGui::Separator();
   if (ImGui::Button("+ Add Component", ImVec2(-1, 0))) {
@@ -552,6 +627,11 @@ void editor::build_properties()
     if (!scene_.has_component<tag>(selected_)) {
       if (ImGui::MenuItem("Tag")) {
         scene_.add_component<tag>(selected_, entity_label(selected_));
+      }
+    }
+    if (!scene_.has_component<light>(selected_)) {
+      if (ImGui::MenuItem("Light")) {
+        scene_.add_component<light>(selected_);
       }
     }
     ImGui::EndPopup();
