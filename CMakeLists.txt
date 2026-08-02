@@ -72,6 +72,14 @@ set_target_properties(game PROPERTIES
 )
 message(STATUS "Game executable: game${GAME_NAME_SUFFIX}.exe")
 
+# Remove previously built game*.exe files (old random names) after linking.
+add_custom_command(TARGET game POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -P
+          "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_game_exe.cmake"
+          "${CMAKE_BINARY_DIR}"
+          "$<TARGET_FILE:game>"
+)
+
 # --- Editor executable ---
 file(GLOB_RECURSE EDITOR_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/editor/*.cpp"

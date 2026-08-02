@@ -15,6 +15,7 @@
 // -- math --
 #include "core/math/vec2.hpp"
 #include "core/math/vec3.hpp"
+#include "core/math/vec4.hpp"
 #include "core/math/mat4.hpp"
 #include "core/math/transform.hpp"
 
@@ -28,6 +29,11 @@
 #include "core/ecs/components/transform.hpp"
 #include "core/ecs/components/tag.hpp"
 #include "core/ecs/components/light.hpp"
+#include "core/ecs/components/paint.hpp"
+
+// -- tools --
+#include "core/prefab.hpp"
+#include "core/raycast.hpp"
 
 // -- renderer --
 #include "renderer/shader.hpp"
@@ -35,10 +41,13 @@
 #include "renderer/vertex.hpp"
 #include "renderer/mesh.hpp"
 #include "renderer/texture.hpp"
+#include "renderer/texture_cache.hpp"
 #include "renderer/material.hpp"
 #include "renderer/render_command.hpp"
 #include "renderer/lighting.hpp"
 #include "renderer/skybox.hpp"
+#include "renderer/shadow_map.hpp"
+#include "renderer/planar_mirror.hpp"
 
 // -- game loop --
 #include "core/game_loop.hpp"

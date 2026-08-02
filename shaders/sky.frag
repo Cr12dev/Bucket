@@ -13,24 +13,24 @@ void main()
   float up = dir.y;
 
   // atmosphere gradient (approximate Rayleigh scattering)
-  vec3 top     = vec3(0.08, 0.25, 0.65);
-  vec3 horizon = vec3(0.68, 0.78, 0.86);
-  vec3 ground  = vec3(0.30, 0.28, 0.26);
+  vec3 top     = vec3(0.13, 0.38, 0.88);
+  vec3 horizon = vec3(0.72, 0.83, 0.93);
+  vec3 ground  = vec3(0.42, 0.38, 0.32);
 
   float t = clamp(up * 0.5 + 0.5, 0.0, 1.0);
   vec3 col = mix(horizon, top, pow(t, 1.4));
 
   // sun disc + glow
   float sun_angle = max(dot(dir, normalize(u_sun_dir)), 0.0);
-  float disc = pow(sun_angle, 1200.0);
-  float glow = pow(sun_angle, 12.0) * 0.35;
-  col += vec3(1.0, 0.9, 0.72) * (disc * 2.0 + glow);
+  float disc = pow(sun_angle, 900.0);
+  float glow = pow(sun_angle, 10.0) * 0.55;
+  col += vec3(1.0, 0.92, 0.75) * (disc * 2.2 + glow);
 
   // ground below horizon
   col = mix(ground, col, smoothstep(-0.02, 0.05, up));
 
-  // horizon haze
-  col = mix(col, horizon, exp(-abs(up) * 6.0) * 0.25);
+  // horizon haze (lighter for a clear daytime sky)
+  col = mix(col, horizon, exp(-abs(up) * 6.0) * 0.15);
 
   frag_color = vec4(col, 1.0);
 }

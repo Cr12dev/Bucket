@@ -4,7 +4,7 @@ $BuildDir = Join-Path $RootDir "build"
 & (Join-Path $PSScriptRoot "build.ps1")
 if (-not $?) { exit 1 }
 
-$GameExe = Join-Path $BuildDir "game.exe"
+$GameExe = Join-Path $BuildDir "game5281.exe"
 if (Test-Path $GameExe) {
   Push-Location $RootDir
   & $GameExe
