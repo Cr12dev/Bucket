@@ -4,6 +4,9 @@ in vec3 v_ray;
 
 uniform vec3 u_camera_pos;
 uniform vec3 u_sun_dir;
+uniform vec3 u_sky_top;
+uniform vec3 u_sky_horizon;
+uniform vec3 u_sky_ground;
 
 out vec4 frag_color;
 
@@ -13,12 +16,14 @@ void main()
   float up = dir.y;
 
   // atmosphere gradient (approximate Rayleigh scattering)
-  vec3 top     = vec3(0.13, 0.38, 0.88);
-  vec3 horizon = vec3(0.72, 0.83, 0.93);
-  vec3 ground  = vec3(0.42, 0.38, 0.32);
+  vec3 top     = u_sky_top;
+  vec3 horizon = u_sky_horizon;
+  vec3 ground  = u_sky_ground;
 
   float t = clamp(up * 0.5 + 0.5, 0.0, 1.0);
-  vec3 col = mix(horizon, top, pow(t, 1.4));
+  // steeper gradient: the blue zenith only appears high up, mid-sky stays
+  // warm hazy (a dusty desert look) instead of turning blue everywhere
+  vec3 col = mix(horizon, top, pow(t, 2.4));
 
   // sun disc + glow
   float sun_angle = max(dot(dir, normalize(u_sun_dir)), 0.0);
