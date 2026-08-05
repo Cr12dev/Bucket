@@ -12,6 +12,21 @@
 #include <vector>
 
 namespace scene_io {
+
+// Length-prefixed string helpers for component serialization.
+inline void write_string(std::FILE* f, const std::string& s) {
+  uint32_t len = static_cast<uint32_t>(s.size());
+  std::fwrite(&len, sizeof(len), 1, f);
+  std::fwrite(s.data(), 1, len, f);
+}
+
+inline void read_string(std::FILE* f, std::string& s) {
+  uint32_t len = 0;
+  std::fread(&len, sizeof(len), 1, f);
+  s.resize(len);
+  std::fread(s.data(), 1, len, f);
+}
+
 template<typename T>
 inline void write_component(std::FILE* f, const T& c) {
   std::fwrite(&c, sizeof(T), 1, f);
@@ -109,12 +124,15 @@ public:
   template<typename T>
   component_pool<T>* get_pool() {
     auto id = component_id<T>();
+    while (pools_.size() <= id)
+      pools_.push_back(nullptr);
     return static_cast<component_pool<T>*>(pools_[id].get());
   }
 
   template<typename T>
   const component_pool<T>* get_pool() const {
     auto id = component_id<T>();
+    if (id >= pools_.size()) return nullptr;
     return static_cast<const component_pool<T>*>(pools_[id].get());
   }
 
@@ -163,7 +181,7 @@ public:
     std::FILE* f = std::fopen(path, "wb");
     if (!f) return false;
 
-    const char magic[8] = { 'B', 'U', 'C', 'K', 'L', 'E', 'V', '2' };
+    const char magic[8] = { 'B', 'U', 'C', 'K', 'L', 'E', 'V', '3' };
     std::fwrite(magic, 1, sizeof(magic), f);
 
     uint32_t entity_count = next_id_;
@@ -199,7 +217,7 @@ public:
 
     char magic[8];
     bool valid = std::fread(magic, 1, sizeof(magic), f) == sizeof(magic) &&
-                 std::memcmp(magic, "BUCKLEV2", sizeof(magic)) == 0;
+                 std::memcmp(magic, "BUCKLEV3", sizeof(magic)) == 0;
     if (!valid) {
       std::fclose(f);
       return false;

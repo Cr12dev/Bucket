@@ -6,10 +6,12 @@
 #include <memory>
 #include <array>
 
-class material {
+// Legacy renderer-side binding holder (superseded by material_bind + paint).
+// The `material` name belongs to the paint alias used in game code.
+class material_binding {
 public:
-  material() = default;
-  explicit material(std::shared_ptr<shader> shader);
+  material_binding() = default;
+  explicit material_binding(std::shared_ptr<shader> shader);
 
   void set_shader(std::shared_ptr<shader> s) { shader_ = std::move(s); }
   shader* get_shader() const { return shader_.get(); }

@@ -30,24 +30,30 @@
 #include "core/ecs/components/tag.hpp"
 #include "core/ecs/components/light.hpp"
 #include "core/ecs/components/paint.hpp"
+#include "core/ecs/components/mesh.hpp"
 
 // -- tools --
 #include "core/prefab.hpp"
 #include "core/raycast.hpp"
+#include "core/frustum.hpp"
 
 // -- renderer --
 #include "renderer/shader.hpp"
+#include "renderer/shader_cache.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/vertex.hpp"
 #include "renderer/mesh.hpp"
+#include "renderer/mesh_cache.hpp"
 #include "renderer/texture.hpp"
 #include "renderer/texture_cache.hpp"
-#include "renderer/material.hpp"
+#include "renderer/material_binding.hpp"
+#include "renderer/material_bind.hpp"
 #include "renderer/render_command.hpp"
 #include "renderer/lighting.hpp"
 #include "renderer/skybox.hpp"
 #include "renderer/shadow_map.hpp"
 #include "renderer/planar_mirror.hpp"
+#include "renderer/render_pipeline.hpp"
 
 // -- game loop --
 #include "core/game_loop.hpp"

@@ -20,6 +20,8 @@ public:
 
   // Draws one box into the shadow map with the current light matrix.
   void draw(const mat4& model);
+  // Draws an arbitrary mesh into the shadow map (per-entity meshes).
+  void draw(const mat4& model, const mesh& m);
 
   void bind_depth(int unit) const;
 

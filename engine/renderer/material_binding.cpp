@@ -1,22 +1,22 @@
-#include "material.hpp"
+#include "material_binding.hpp"
 
-material::material(std::shared_ptr<shader> shader)
+material_binding::material_binding(std::shared_ptr<shader> shader)
   : shader_(std::move(shader))
 {
 }
 
-void material::set_texture(const std::string& name, const texture* tex)
+void material_binding::set_texture(const std::string& name, const texture* tex)
 {
   int unit = static_cast<int>(textures_.size());
   textures_[name] = { tex, unit };
 }
 
-void material::set_color(const std::string& name, float r, float g, float b, float a)
+void material_binding::set_color(const std::string& name, float r, float g, float b, float a)
 {
   colors_[name] = { r, g, b, a };
 }
 
-void material::bind() const
+void material_binding::bind() const
 {
   if (!shader_) return;
   shader_->bind();

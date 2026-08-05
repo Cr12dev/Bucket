@@ -59,6 +59,8 @@ void editor::awake()
   lighting_shader_ = std::make_shared<shader>(
     "shaders/lighting.vert", "shaders/lighting.frag"
   );
+  shader_cache::put("default", default_shader_);
+  shader_cache::put("lighting", lighting_shader_);
   cube_mesh_ = mesh::cube();
   white_tex_ = texture::white();
   skybox_.init();
@@ -388,7 +390,7 @@ void editor::build_viewport()
   camera_.set_perspective(60.0f, static_cast<float>(vp_w_) / vp_h_, 0.1f, 100.0f);
 
   // procedural skybox (atmosphere)
-  skybox_.render(camera_);
+  skybox_.render(camera_, atmosphere());
 
   // grid
   if (show_grid_) {
@@ -417,51 +419,31 @@ void editor::build_viewport()
   lighting_shader_->set_uniform("u_fog_end", 60.0f);
   lights.upload(*lighting_shader_);
 
+  frustum view_frustum = frustum::from_view_proj(camera_.view_projection());
+
   scene_.for_each<transform>([&](entity e, transform& t) {
+    mat4 model = t.matrix();
+
+    // frustum culling
+    vec3 aabb_min, aabb_max;
+    aabb_from_model(model, aabb_min, aabb_max);
+    vec3 center = (aabb_min + aabb_max) * 0.5f;
+    vec3 half = (aabb_max - aabb_min) * 0.5f;
+    if (!view_frustum.contains(center, half))
+      return;
+
     bool sel = (e == selected_);
     const paint* p = scene_.get_component<paint>(e);
+    const mesh_component* mc = scene_.get_component<mesh_component>(e);
+
+    material_bind::bind(lighting_shader_.get(), p);
     lighting_shader_->set_uniform("u_color",
       sel ? 1.0f : 0.6f,
       sel ? 0.8f : 0.6f,
       sel ? 0.2f : 0.7f,
       1.0f);
-    lighting_shader_->set_uniform("u_uv_scale", p ? p->uv_scale : 0.0f);
-
-    // per-entity texture binding (empty slots fall back to white)
-    std::shared_ptr<texture> white = texture_cache::white();
-    std::shared_ptr<texture> albedo = p ? texture_cache::load(p->albedo) : nullptr;
-    std::shared_ptr<texture> normal = p ? texture_cache::load(p->normal) : nullptr;
-    std::shared_ptr<texture> rough  = p ? texture_cache::load(p->roughness) : nullptr;
-    std::shared_ptr<texture> emiss  = p ? texture_cache::load(p->emission) : nullptr;
-
-    (albedo ? albedo : white)->bind(0);
-    lighting_shader_->set_uniform("u_albedo", 0);
-    (normal ? normal : white)->bind(3);
-    lighting_shader_->set_uniform("u_normal_map", 3);
-    lighting_shader_->set_uniform("u_normal_enabled", normal ? 1.0f : 0.0f);
-    (rough ? rough : white)->bind(4);
-    lighting_shader_->set_uniform("u_roughness_map", 4);
-    lighting_shader_->set_uniform("u_roughness_enabled", rough ? 1.0f : 0.0f);
-    (emiss ? emiss : white)->bind(5);
-    lighting_shader_->set_uniform("u_emission_map", 5);
-    lighting_shader_->set_uniform("u_emission_enabled", emiss ? 1.0f : 0.0f);
-    lighting_shader_->set_uniform("u_emission_color",
-                                  p ? p->emission_color.x : 0.0f,
-                                  p ? p->emission_color.y : 0.0f,
-                                  p ? p->emission_color.z : 0.0f);
-    for (int i = 0; i < 6; ++i) {
-      std::shared_ptr<texture> face = p ? texture_cache::load(p->face_albedo[i]) : nullptr;
-      (face ? face : white)->bind(6 + i);
-      char name[40];
-      std::snprintf(name, sizeof(name), "u_face_albedo[%d]", i);
-      lighting_shader_->set_uniform(name, 6 + i);
-      std::snprintf(name, sizeof(name), "u_face_albedo_enabled[%d]", i);
-      lighting_shader_->set_uniform(name, face ? 1.0f : 0.0f);
-    }
-
-    mat4 model = t.matrix();
     lighting_shader_->set_uniform("u_model", model.data());
-    render_command::draw_indexed(cube_mesh_);
+    render_command::draw_indexed(*mesh_cache::get(mc ? mc->id : "cube"));
   });
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -627,6 +609,17 @@ void editor::build_properties()
       ImGui::SliderFloat("Reflectivity", &p->reflectivity, 0.0f, 1.0f);
       ImGui::SliderFloat("UV Scale (0 = mesh UV)", &p->uv_scale, 0.0f, 4.0f);
 
+      // material shader id ("" = global active shader)
+      static const char* shader_names[] = { "(active)", "default", "basic",
+                                            "checker", "pulse", "lighting" };
+      int shader_idx = 0;
+      for (int i = 1; i < 6; ++i) {
+        if (p->shader == shader_names[i]) shader_idx = i;
+      }
+      if (ImGui::Combo("Shader", &shader_idx, shader_names, 6)) {
+        p->shader = shader_idx == 0 ? "" : shader_names[shader_idx];
+      }
+
       ImGui::Separator();
       ImGui::TextUnformatted("Texture maps (path relative to project root)");
       char buf[512];
@@ -645,6 +638,16 @@ void editor::build_properties()
       for (int i = 0; i < 6; ++i) {
         std::snprintf(buf, sizeof(buf), "Face %d", i);
         path_edit(buf, p->face_albedo[i]);
+      }
+    }
+  }
+
+  if (mesh_component* mc = scene_.get_component<mesh_component>(selected_)) {
+    if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "%s", mc->id.c_str());
+      if (ImGui::InputText("Mesh id", buf, sizeof(buf))) {
+        mc->id = buf;
       }
     }
   }
@@ -698,6 +701,11 @@ void editor::build_properties()
     if (!scene_.has_component<paint>(selected_)) {
       if (ImGui::MenuItem("Paint")) {
         scene_.add_component<paint>(selected_);
+      }
+    }
+    if (!scene_.has_component<mesh_component>(selected_)) {
+      if (ImGui::MenuItem("Mesh")) {
+        scene_.add_component<mesh_component>(selected_);
       }
     }
     ImGui::EndPopup();
@@ -762,7 +770,7 @@ void editor::build_map_dialogs()
     ImGui::InputText("Map name", map_name_, sizeof(map_name_));
     if (ImGui::Button("Save")) {
       std::string path = std::string(map_name_) + ".lev";
-      if (scene_.save<transform, tag, paint>(path.c_str())) {
+      if (scene_.save<transform, tag, paint, mesh_component>(path.c_str())) {
         status_message_ = "Map saved: " + path;
       } else {
         status_message_ = "Failed to save map: " + path;
@@ -796,7 +804,7 @@ void editor::build_map_dialogs()
     ImGui::EndChild();
     if (ImGui::Button("Load")) {
       std::string path = std::string(map_name_) + ".lev";
-      if (scene_.load<transform, tag, paint>(path.c_str())) {
+      if (scene_.load<transform, tag, paint, mesh_component>(path.c_str())) {
         selected_ = null_entity();
         status_message_ = "Map loaded: " + path;
       } else {

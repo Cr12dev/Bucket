@@ -73,8 +73,13 @@ void shadow_map::end()
 
 void shadow_map::draw(const mat4& model)
 {
+  draw(model, cube_);
+}
+
+void shadow_map::draw(const mat4& model, const mesh& m)
+{
   depth_shader_->set_uniform("u_model", model.data());
-  render_command::draw_indexed(cube_);
+  render_command::draw_indexed(m);
 }
 
 void shadow_map::bind_depth(int unit) const
