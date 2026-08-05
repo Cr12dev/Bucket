@@ -2,6 +2,7 @@
 #include "scripts/fps_player.hpp"
 
 #include <cstdio>
+#include <cmath>
 #include <glm/glm.hpp>
 
 buckit::buckit()
@@ -40,6 +41,15 @@ void buckit::awake()
   lighting_shader_ = std::make_shared<shader>(
     "shaders/lighting.vert", "shaders/lighting.frag"
   );
+
+  // register material shaders for per-entity use (paint::shader)
+  shader_cache::put("default", default_shader_);
+  shader_cache::put("basic", basic_shader_);
+  shader_cache::put("checker", checker_shader_);
+  shader_cache::put("pulse", pulse_shader_);
+  shader_cache::put("lighting", lighting_shader_);
+
+  
   cube_mesh_ = mesh::cube();
   checker_ = texture::checkerboard();
   skybox_.init();
@@ -62,17 +72,34 @@ void buckit::start()
 
   // daytime sun (directional)
   prefab::sun(scene_, vec3(0.3f, -0.8f, -0.5f),
-              vec3(1.0f, 0.97f, 0.90f), 1.5f);
+              vec3(1.0f, 0.97f, 0.90f), 1.5f, "sol");
 
   // warm point light over the center bombsite
   prefab::point_light(scene_, vec3(0.0f, 4.5f, 0.0f),
-                      vec3(1.0f, 0.92f, 0.78f), 6.0f, 16.0f);
+                      vec3(1.0f, 0.92f, 0.78f), 2.0f, 16.0f, "luz_central");
 
   // cool accent light near the crate cluster
-  prefab::point_light(scene_, vec3(-20.0f, 3.0f, -15.0f),
-                      vec3(0.65f, 0.80f, 1.0f), 4.0f, 12.0f);
+  // prefab::point_light(scene_, vec3(-20.0f, 3.0f, -15.0f),
+  //                     vec3(0.65f, 0.80f, 1.0f), 4.0f, 12.0f, "luz_fria");
 
   build_map();
+
+  atmosphere_.fog_enabled = false;
+
+  // grab the glowing lamp crate by its id so update() can edit it (demo)
+  lamp_e_ = find_object("lampara");
+
+  // make muro_norte a metal: the metallic map's R channel = how metallic it is
+  // (white = fully metallic, black = dielectric). Loaded and applied at runtime.
+  if (material* muro = component<material>("muro_norte")) {
+    muro->metallic = "textures/metal_metallic.png";
+  }
+
+  // render pipeline: named passes executed in order every frame
+  pipeline_.add("mirror", [this]() { render_mirror_pass(); });
+  pipeline_.add("shadows", [this]() { render_shadow_pass(); });
+  pipeline_.add("main", [this]() { render_main_pass(); });
+  pipeline_.add("crosshair", [this]() { draw_crosshair(last_w_, last_h_); });
 
   vec3 spawn = vec3(0.0f, 1.7f, 0.0f);
   player_entity_ = scene_.create_entity();
@@ -80,137 +107,16 @@ void buckit::start()
                                    app_->get_window().native(), spawn);
 
   std::printf("[bucket] scenario objects:\n");
-  scene_.for_each<transform>([&](entity e, transform& t) {
-    std::printf("  [%u] pos=(%.2f, %.2f, %.2f) size=(%.2f, %.2f, %.2f)\n",
-                e.id, t.position.x, t.position.y, t.position.z,
-                t.scale.x, t.scale.y, t.scale.z);
+  scene_.for_each<tag>([&](entity e, tag& t) {
+    transform* tr = scene_.get_component<transform>(e);
+    if (tr) {
+      std::printf("  '%s' pos=(%.2f, %.2f, %.2f) size=(%.2f, %.2f, %.2f)\n",
+                  t.name.c_str(), tr->position.x, tr->position.y, tr->position.z,
+                  tr->scale.x, tr->scale.y, tr->scale.z);
+    } else {
+      std::printf("  '%s' (no transform)\n", t.name.c_str());
+    }
   });
-}
-
-// CS 1.6-style sandy arena built from engine prefabs
-void buckit::build_map()
-{
-  const vec3 sand(0.80f, 0.75f, 0.58f);
-  const vec3 wall(0.72f, 0.66f, 0.50f);
-  const vec3 wood(0.52f, 0.36f, 0.20f);
-  const vec3 wood_dark(0.42f, 0.30f, 0.18f);
-  const vec3 stone(0.62f, 0.62f, 0.64f);
-  const vec3 crate_blue(0.35f, 0.45f, 0.55f);
-  const vec3 crate_green(0.35f, 0.52f, 0.35f);
-  const vec3 platform(0.78f, 0.74f, 0.62f);
-
-  // --- reflective floor and boundary walls ---
-  entity floor_e = prefab::floor(scene_, vec3(0.0f, -0.25f, 0.0f), vec3(80.0f, 0.5f, 60.0f),
-                                 sand, 0.45f);
-  {
-    paint& p = *scene_.get_component<paint>(floor_e);
-    p.albedo = "textures/brick_albedo.png";
-    p.roughness = "textures/brick_roughness.png";
-    p.color = vec4(1.0f);
-  }
-  prefab::wall(scene_, vec3(0.0f, 3.0f, -30.0f), vec3(80.0f, 6.0f, 1.0f), wall);
-  prefab::wall(scene_, vec3(0.0f, 3.0f, 30.0f), vec3(80.0f, 6.0f, 1.0f), wall);
-  prefab::wall(scene_, vec3(-40.0f, 3.0f, 0.0f), vec3(1.0f, 6.0f, 60.0f), wall);
-  prefab::wall(scene_, vec3(40.0f, 3.0f, 0.0f), vec3(1.0f, 6.0f, 60.0f), wall);
-
-  // --- central bombsite platform with stairs ---
-  prefab::box(scene_, vec3(0.0f, 0.75f, 0.0f), vec3(14.0f, 1.5f, 10.0f), platform);
-  prefab::box(scene_, vec3(8.5f, 1.0f, 0.0f), vec3(3.0f, 2.0f, 8.0f), platform);
-  prefab::box(scene_, vec3(10.5f, 2.0f, 0.0f), vec3(3.0f, 2.0f, 8.0f), platform);
-  prefab::box(scene_, vec3(-8.5f, 1.0f, 0.0f), vec3(3.0f, 2.0f, 8.0f), platform);
-  prefab::box(scene_, vec3(-10.5f, 2.0f, 0.0f), vec3(3.0f, 2.0f, 8.0f), platform);
-
-  // crates on the platform: wood-textured + a glowing lamp crate
-  entity crate_e = prefab::crate(scene_, vec3(-3.0f, 2.5f, 0.0f), 2.0f, wood);
-  {
-    paint& p = *scene_.get_component<paint>(crate_e);
-    p.albedo = "textures/wood_albedo.png";
-    p.normal = "textures/wood_normal.png";
-    p.roughness = "textures/wood_roughness.png";
-    p.color = vec4(1.0f);
-  }
-
-  entity lamp_e = prefab::crate(scene_, vec3(2.0f, 2.5f, -2.0f), 2.0f, wood_dark);
-  {
-    paint& p = *scene_.get_component<paint>(lamp_e);
-    p.albedo = "textures/metal_albedo.png";
-    p.roughness = "textures/metal_roughness.png";
-    p.emission = "textures/emissive_lamp.png";
-    p.emission_color = vec3(2.4f, 1.9f, 1.1f);
-    p.color = vec4(1.0f);
-  }
-
-  // per-face albedo demo: every face gets its own texture
-  entity face_e = prefab::crate(scene_, vec3(4.0f, 2.5f, 0.0f), 2.0f, stone);
-  {
-    paint& p = *scene_.get_component<paint>(face_e);
-    p.normal = "textures/wood_normal.png";
-    p.roughness = "textures/wood_roughness.png";
-    p.color = vec4(1.0f);
-    p.face_albedo[0] = "textures/wood_albedo.png";   // front
-    p.face_albedo[1] = "textures/wood_albedo.png";   // back
-    p.face_albedo[2] = "textures/metal_albedo.png";  // right
-    p.face_albedo[3] = "textures/metal_albedo.png";  // left
-    p.face_albedo[4] = "textures/brick_albedo.png";  // top
-    p.face_albedo[5] = "textures/wood_albedo.png";   // bottom
-  }
-
-  // --- pillar ring ---
-  prefab::pillar(scene_, vec3(-12.0f, 4.0f, -12.0f));
-  prefab::pillar(scene_, vec3(12.0f, 4.0f, -12.0f));
-  prefab::pillar(scene_, vec3(-12.0f, 4.0f, 12.0f));
-  prefab::pillar(scene_, vec3(12.0f, 4.0f, 12.0f));
-
-  // --- west/east wall segments with doorways ---
-  prefab::wall(scene_, vec3(-25.0f, 3.0f, -12.0f), vec3(2.0f, 6.0f, 8.0f), wall);
-  prefab::wall(scene_, vec3(-25.0f, 3.0f, 2.0f), vec3(2.0f, 6.0f, 8.0f), wall);
-  prefab::wall(scene_, vec3(25.0f, 3.0f, -12.0f), vec3(2.0f, 6.0f, 8.0f), wall);
-  prefab::wall(scene_, vec3(25.0f, 3.0f, 2.0f), vec3(2.0f, 6.0f, 8.0f), wall);
-
-  // --- arch / tunnel frame ---
-  prefab::pillar(scene_, vec3(-4.0f, 2.5f, 18.0f), 2.0f, 5.0f);
-  prefab::pillar(scene_, vec3(4.0f, 2.5f, 18.0f), 2.0f, 5.0f);
-  prefab::box(scene_, vec3(0.0f, 5.5f, 18.0f), vec3(12.0f, 1.0f, 2.0f), stone);
-
-  // --- crate cluster NW ---
-  entity c1 = prefab::crate(scene_, vec3(-20.0f, 1.0f, -15.0f), 2.0f, wood);
-  entity c2 = prefab::crate(scene_, vec3(-20.0f, 3.0f, -15.0f), 2.0f, wood_dark);
-  {
-    paint& p1 = *scene_.get_component<paint>(c1);
-    p1.albedo = "textures/wood_albedo.png";
-    p1.normal = "textures/wood_normal.png";
-    p1.roughness = "textures/wood_roughness.png";
-    p1.color = vec4(1.0f);
-    paint& p2 = *scene_.get_component<paint>(c2);
-    p2.albedo = "textures/metal_albedo.png";
-    p2.roughness = "textures/metal_roughness.png";
-    p2.color = vec4(1.0f);
-  }
-  prefab::crate(scene_, vec3(-18.0f, 1.0f, -13.5f), 2.0f, crate_blue);
-  prefab::crate(scene_, vec3(-16.0f, 1.0f, -15.0f), 2.0f, wood);
-  prefab::crate(scene_, vec3(-16.0f, 3.0f, -15.0f), 2.0f, wood);
-
-  // --- crate cluster SE ---
-  prefab::crate(scene_, vec3(18.0f, 1.0f, 12.0f), 2.0f, wood);
-  prefab::crate(scene_, vec3(20.0f, 1.0f, 14.0f), 2.0f, crate_green);
-  prefab::crate(scene_, vec3(22.0f, 1.0f, 12.0f), 2.0f, wood_dark);
-
-  // --- big blocks NE ---
-  prefab::box(scene_, vec3(30.0f, 1.5f, -25.0f), vec3(3.0f, 3.0f, 3.0f), crate_blue);
-  prefab::box(scene_, vec3(33.0f, 2.5f, -23.0f), vec3(3.0f, 5.0f, 3.0f), crate_green);
-
-  // --- sandbags along the south wall ---
-  prefab::sandbag(scene_, vec3(-10.0f, 0.5f, 28.25f));
-  prefab::sandbag(scene_, vec3(-6.5f, 0.5f, 28.25f));
-  prefab::sandbag(scene_, vec3(-3.0f, 0.5f, 28.25f));
-  prefab::sandbag(scene_, vec3(4.0f, 0.5f, 28.25f));
-  prefab::sandbag(scene_, vec3(7.5f, 0.5f, 28.25f));
-
-  // --- scattered crates ---
-  prefab::crate(scene_, vec3(-30.0f, 1.0f, 20.0f), 2.0f, crate_green);
-  prefab::crate(scene_, vec3(-28.0f, 1.0f, 22.0f), 2.0f, wood);
-  prefab::crate(scene_, vec3(36.0f, 1.0f, -5.0f), 2.0f, wood);
-  prefab::crate(scene_, vec3(36.0f, 3.0f, -5.0f), 2.0f, wood_dark);
 }
 
 bool buckit::load_map(const char* path)
@@ -227,6 +133,16 @@ transform* buckit::object(uint32_t id)
   return scene_.get_component<transform>(entity{ id, 0 });
 }
 
+entity buckit::find_object(const std::string& id) const
+{
+  entity found = null_entity();
+  scene_.for_each<tag>([&](entity e, const tag& t) {
+    if (t.name == id)
+      found = e;
+  });
+  return found;
+}
+
 void buckit::shoot_ray()
 {
   raycast_hit hit = raycast_scene(scene_, camera_.position(),
@@ -238,59 +154,6 @@ void buckit::shoot_ray()
                 hit.entity_hit.id, hit.point.x, hit.point.y, hit.point.z);
   } else {
     std::printf("[bucket] ray missed\n");
-  }
-}
-
-// Uploads the entity's paint (color, maps, per-face overrides) to a shader.
-void buckit::bind_material(entity e, shader* s)
-{
-  const paint* p = scene_.get_component<paint>(e);
-
-  vec4 color = p ? p->color : vec4(1.0f);
-  if (e == hit_flash_ && hit_flash_timer_ > 0.0f) {
-    vec3 flash = lerp(vec3(color.x, color.y, color.z),
-                      vec3(1.0f, 0.9f, 0.2f), 0.8f);
-    color = vec4(flash.x, flash.y, flash.z, color.w);
-  }
-
-  s->set_uniform("u_color", color.x, color.y, color.z, color.w);
-  s->set_uniform("u_reflectivity", p ? p->reflectivity : 0.0f);
-  s->set_uniform("u_uv_scale", p ? p->uv_scale : 0.0f);
-
-  std::shared_ptr<texture> albedo = p ? texture_cache::load(p->albedo) : nullptr;
-  std::shared_ptr<texture> normal = p ? texture_cache::load(p->normal) : nullptr;
-  std::shared_ptr<texture> rough  = p ? texture_cache::load(p->roughness) : nullptr;
-  std::shared_ptr<texture> emiss  = p ? texture_cache::load(p->emission) : nullptr;
-  std::shared_ptr<texture> white  = texture_cache::white();
-
-  (albedo ? albedo : white)->bind(0);
-  s->set_uniform("u_albedo", 0);
-
-  (normal ? normal : white)->bind(3);
-  s->set_uniform("u_normal_map", 3);
-  s->set_uniform("u_normal_enabled", normal ? 1.0f : 0.0f);
-
-  (rough ? rough : white)->bind(4);
-  s->set_uniform("u_roughness_map", 4);
-  s->set_uniform("u_roughness_enabled", rough ? 1.0f : 0.0f);
-
-  (emiss ? emiss : white)->bind(5);
-  s->set_uniform("u_emission_map", 5);
-  s->set_uniform("u_emission_enabled", emiss ? 1.0f : 0.0f);
-  s->set_uniform("u_emission_color",
-                 p ? p->emission_color.x : 0.0f,
-                 p ? p->emission_color.y : 0.0f,
-                 p ? p->emission_color.z : 0.0f);
-
-  // per-face albedo overrides (texture units 6..11)
-  for (int i = 0; i < 6; ++i) {
-    std::shared_ptr<texture> face = p ? texture_cache::load(p->face_albedo[i]) : nullptr;
-    (face ? face : white)->bind(6 + i);
-    char name[40];
-    std::snprintf(name, sizeof(name), "u_face_albedo[%d]", i);
-    s->set_uniform(name, 6 + i);
-    std::snprintf(name, sizeof(name), "u_face_albedo_enabled[%d]", i);
-    s->set_uniform(name, face ? 1.0f : 0.0f);
   }
 }
 
@@ -318,6 +181,153 @@ void buckit::update(double dt)
   if (input::key_pressed(GLFW_KEY_3)) select_shader(3);
   if (input::key_pressed(GLFW_KEY_4)) select_shader(4);
   if (input::key_pressed(GLFW_KEY_5)) select_shader(5);
+
+  // --- demo: edit map objects from update() by their id string ---
+  // Any object created with a prefab has a mandatory id. Find it once
+  // (find_object) or edit directly by name from update():
+  //   component<transform>("muro_norte")->position.x = 0;   // pos / rot / scale
+  //   component<paint>("caja_madera1")->color = vec4(1, 0, 0, 1);
+  //   component<paint>("lampara")->emission_color = vec3(3, 2, 1);
+  //   component<light>("luz_central")->intensity = 10;      // range / color / ...
+  //   component<mesh_component>("caja_caras")->id = "quad";
+  // if (lamp_e_) {
+  //   transform* lt = component<transform>(lamp_e_.id);
+  //   paint* lp = component<paint>(lamp_e_.id);
+  //   if (lt && lp) {
+  //     // pulse the emission intensity
+  //     float pulse = 0.5f + 0.5f * std::sin(elapsed_ * 2.2f);
+  //     lp->emission_color = vec3(1.2f + 2.4f * pulse, 0.9f + 1.9f * pulse, 0.5f + 1.1f * pulse);
+  //     // slow spin around Y
+  //     lt->rotation.y += static_cast<float>(dt) * 1.6f;
+  //   }
+  // }
+
+  /**
+   * Ejemplo de movimiento de un objeto del mapa (muro_norte) desde el update() del juego.
+   * Se puede editar cualquier componente de un objeto del mapa desde el update() del juego.
+   * En este caso el movimiento es en el eje Z, y se mueve hacia adelante y hacia atrás entre -12.0f y 0.0f.
+   */
+  transform* muro_norte_transform = component<transform>("muro_norte");  
+  if (muro_norte_transform) {
+    
+
+    if (muro_norte_transform->position.z > -12.0f) {
+      muro_norte_transform->position.z += static_cast<float>(dt) * 0;
+    } else {
+      muro_norte_transform->position.z += static_cast<float>(dt) * 0.5f;
+    }
+  }
+
+  /**
+   * Ejemplo de cambio de color de un objeto del mapa (muro_norte) desde el update() del juego.
+   * Se puede editar cualquier componente de un objeto del mapa desde el update() del juego.
+   * En este caso el color cambia a rojo, verde o azul dependiendo de la tecla presionada (R, G o B).
+   * Se utiliza el componente paint del objeto para cambiar su color.
+   */
+
+  paint* muro_norte_paint = component<paint>("muro_norte");
+  if (muro_norte_paint) {
+    // Cambiar el color del muro_norte a rojo cuando se presiona la tecla 'R'
+    if (input::key_pressed(GLFW_KEY_R)) {
+      muro_norte_paint->color = vec4(1.0f, 0.0f, 0.0f, 1.0f); // Rojo
+    }
+    // Cambiar el color del muro_norte a verde cuando se presiona la tecla 'G'
+    if (input::key_pressed(GLFW_KEY_G)) {
+      muro_norte_paint->color = vec4(0.0f, 1.0f, 0.0f, 1.0f); // Verde
+    }
+    // Cambiar el color del muro_norte a azul cuando se presiona la tecla 'B'
+    if (input::key_pressed(GLFW_KEY_B)) {
+      muro_norte_paint->color = vec4(0.0f, 0.0f, 1.0f, 1.0f); // Azul
+    }
+  }
+
+  /**
+   * Ejemplo de cambio de color de un objeto del mapa (suelo) desde el update() del juego.
+   * Se puede editar cualquier componente de un objeto del mapa desde el update() del juego.
+   * En este caso el color cambia a amarillo cuando se presiona la tecla 'Y'.
+   * Se utiliza el componente paint del objeto para cambiar su color.
+   */
+  paint* floor = component<paint>("suelo");
+  if (floor) {
+    // Cambiar el color de la plataforma principal a amarillo cuando se presiona la tecla 'Y'
+    if (input::key_pressed(GLFW_KEY_Y)) {
+      floor->color = vec4(1.0f, 1.0f, 0.0f, 1.0f); // Amarillo
+    }
+  }
+  material* floor_mt = component<material>("suelo");
+  if (floor_mt) {
+    floor_mt->albedo = "";
+  }
+
+  /**
+   * Ejemplo de edicion del material de un objeto (lampara) desde el update().
+   * El material es el componente paint, accesible con el alias `material`
+   * para que quede mas claro: component<material>("id")->shader / albedo / ...
+   */
+  material* lampara_mat = component<material>("lampara");
+  if (lampara_mat) {
+    // [6] cambia el shader del material en tiempo real
+    if (input::key_pressed(GLFW_KEY_6)) {
+      lampara_mat->shader = (lampara_mat->shader == "checker") ? "lighting" : "checker";
+      std::printf("[bucket] lampara shader -> '%s'\n", lampara_mat->shader.c_str());
+    }
+  }
+
+  /**
+   * Ejemplo de edicion de la atmosfera global desde el update().
+   * buckit::atmosphere_ controla la luz ambiente (sombras), la niebla y el
+   * cielo. La tecla [7] cicla entre presets. Tambien se puede editar campo
+   * a campo en cualquier momento:
+   *   atmosphere_.ambient = vec3(0.32f, 0.30f, 0.26f);    // relleno (color de sombras)
+   *   atmosphere_.fog_color = vec3(0.82f, 0.78f, 0.70f);  // niebla
+   *   atmosphere_.fog_start = 45.0f; atmosphere_.fog_end = 95.0f;
+   *   atmosphere_.sky_top = vec3(0.26f, 0.48f, 0.82f);    // zenith
+   *   atmosphere_.sky_horizon = vec3(0.80f, 0.84f, 0.88f);
+   *   atmosphere_.sky_ground = vec3(0.48f, 0.42f, 0.34f);
+   *   atmosphere_.sun_color = vec3(1.0f, 0.97f, 0.90f);   // color del sol
+   *   atmosphere_.sun_intensity = 1.5f;
+   */
+  if (input::key_pressed(GLFW_KEY_7)) {
+    atmosphere_preset_ = (atmosphere_preset_ + 1) % 3;
+    switch (atmosphere_preset_) {
+      case 0:
+        atmosphere_ = atmosphere();
+        std::printf("[bucket] atmosfera: dia (default)\n");
+        break;
+      case 1: {
+        // nublado: gris neutro, sin tinte azul
+        atmosphere_.ambient = vec3(0.34f, 0.34f, 0.32f);
+        atmosphere_.fog_color = vec3(0.78f, 0.78f, 0.76f);
+        atmosphere_.fog_start = 40.0f; atmosphere_.fog_end = 90.0f;
+        atmosphere_.sky_top = vec3(0.56f, 0.57f, 0.58f);
+        atmosphere_.sky_horizon = vec3(0.74f, 0.74f, 0.72f);
+        atmosphere_.sky_ground = vec3(0.50f, 0.48f, 0.44f);
+        atmosphere_.sun_color = vec3(0.95f, 0.94f, 0.92f);
+        atmosphere_.sun_intensity = 1.0f;
+        std::printf("[bucket] atmosfera: nublado (neutro)\n");
+        break;
+      }
+      default: {
+        // atardecer: calido
+        atmosphere_.ambient = vec3(0.30f, 0.22f, 0.16f);
+        atmosphere_.fog_color = vec3(0.96f, 0.78f, 0.55f);
+        atmosphere_.fog_start = 30.0f; atmosphere_.fog_end = 70.0f;
+        atmosphere_.sky_top = vec3(0.42f, 0.30f, 0.42f);
+        atmosphere_.sky_horizon = vec3(0.98f, 0.72f, 0.42f);
+        atmosphere_.sky_ground = vec3(0.45f, 0.34f, 0.24f);
+        atmosphere_.sun_color = vec3(1.0f, 0.85f, 0.60f);
+        atmosphere_.sun_intensity = 1.8f;
+        std::printf("[bucket] atmosfera: atardecer\n");
+        break;
+      }
+    }
+  }
+
+  // [8] activa / desactiva la niebla
+  if (input::key_pressed(GLFW_KEY_8)) {
+    atmosphere_.fog_enabled = !atmosphere_.fog_enabled;
+    std::printf("[bucket] fog: %s\n", atmosphere_.fog_enabled ? "activado" : "desactivado");
+  }
 }
 
 void buckit::select_shader(int index)
@@ -331,162 +341,4 @@ void buckit::select_shader(int index)
     default: return;
   }
   std::printf("[bucket] active shader: %d\n", index);
-}
-
-void buckit::draw_crosshair(int w, int h)
-{
-  float cx = w * 0.5f;
-  float cy = h * 0.5f;
-  const float len = 7.0f;
-  const float thick = 2.0f;
-
-  mat4 ortho(glm::ortho(0.0f, static_cast<float>(w),
-                        0.0f, static_cast<float>(h), -1.0f, 1.0f));
-
-  glDisable(GL_DEPTH_TEST);
-  default_shader_->bind();
-  default_shader_->set_uniform("u_view_proj", ortho.data());
-  default_shader_->set_uniform("u_color", 0.95f, 0.95f, 0.95f, 1.0f);
-
-  auto bar = [&](float x, float y, float bw, float bh) {
-    mat4 model = mat4::translate(vec3(x, y, 0.0f)) *
-                 mat4::scale(vec3(bw, bh, 1.0f));
-    default_shader_->set_uniform("u_model", model.data());
-    render_command::draw_indexed(cube_mesh_);
-  };
-
-  bar(cx - len * 0.5f - thick * 0.5f, cy, len, thick);
-  bar(cx + len * 0.5f + thick * 0.5f, cy, len, thick);
-  bar(cx, cy - len * 0.5f - thick * 0.5f, thick, len);
-  bar(cx, cy + len * 0.5f + thick * 0.5f, thick, len);
-
-  glEnable(GL_DEPTH_TEST);
-}
-
-void buckit::render()
-{
-  auto& win = app_->get_window();
-  int w = win.width();
-  int h = win.height();
-
-  render_command::set_clear_color(0.13f, 0.36f, 0.70f, 1.0f);
-  render_command::clear();
-
-  camera_.set_perspective(60.0f, static_cast<float>(w) / h, 0.1f, 100.0f);
-
-  // skybox (procedural daytime atmosphere)
-  skybox_.render(camera_);
-
-  // gather lights from scene and track the sun direction
-  lighting lights;
-  scene_.for_each<light>([&](entity e, light& l) {
-    (void)e;
-    if (l.type == light_type::directional) {
-      sun_dir_ = -l.direction.normalized();
-      skybox_.set_sun_dir(sun_dir_);
-    }
-    lights.add(l);
-  });
-
-  bool full_lighting = active_shader_ == lighting_shader_.get() &&
-                       shadow_map_.ready() && mirror_.ready();
-
-  // --- planar reflection pass (mirror camera across the floor plane) ---
-  if (full_lighting) {
-    mirror_.resize(w / 2, h / 2);
-
-    mirror_camera_ = camera_;
-    mirror_camera_.set_position({ camera_.position().x,
-                                  -camera_.position().y,
-                                  camera_.position().z });
-    mirror_camera_.set_pitch(-camera_.pitch());
-    mirror_camera_.set_perspective(60.0f,
-                                   static_cast<float>(w / 2) / (h / 2),
-                                   0.1f, 100.0f);
-
-    mirror_.begin();
-    skybox_.render(mirror_camera_);
-
-    lighting_shader_->bind();
-    lighting_shader_->set_uniform("u_view_proj",
-                                  mirror_camera_.view_projection().data());
-    lighting_shader_->set_uniform("u_view_pos", mirror_camera_.position().x,
-                                  mirror_camera_.position().y,
-                                  mirror_camera_.position().z);
-    lighting_shader_->set_uniform("u_ambient", 0.35f, 0.38f, 0.42f);
-    lighting_shader_->set_uniform("u_fog_color", 0.75f, 0.80f, 0.88f);
-    lighting_shader_->set_uniform("u_fog_start", 60.0f);
-    lighting_shader_->set_uniform("u_fog_end", 140.0f);
-    lighting_shader_->set_uniform("u_shadow_enabled", 0.0f);
-    lighting_shader_->set_uniform("u_mirror_enabled", 0.0f);
-    lighting_shader_->set_uniform("u_reflectivity", 0.0f);
-    lighting_shader_->set_uniform("u_mirror_clip", 0.0f, 1.0f, 0.0f, 0.0f);
-    lighting_shader_->set_uniform("u_mirror_clip_enabled", 1.0f);
-    lights.upload(*lighting_shader_);
-
-    scene_.for_each<transform>([&](entity e, transform& t) {
-      bind_material(e, lighting_shader_.get());
-      // never reflect the mirror into itself
-      lighting_shader_->set_uniform("u_reflectivity", 0.0f);
-      lighting_shader_->set_uniform("u_model", t.matrix().data());
-      render_command::draw_indexed(cube_mesh_);
-    });
-
-    mirror_.end();
-    glViewport(0, 0, w, h);
-  }
-
-  // --- shadow pass (directional light, PCF soft shadows) ---
-  if (full_lighting) {
-    shadow_map_.begin(sun_dir_, camera_.position());
-    scene_.for_each<transform>([&](entity e, transform& t) {
-      (void)e;
-      shadow_map_.draw(t.matrix());
-    });
-    shadow_map_.end();
-    glViewport(0, 0, w, h);
-  }
-
-  // --- main pass ---
-  active_shader_->bind();
-  active_shader_->set_uniform("u_view_proj", camera_.view_projection().data());
-  active_shader_->set_uniform("u_camera_pos", camera_.position().x,
-                              camera_.position().y, camera_.position().z);
-  active_shader_->set_uniform("u_time", elapsed_);
-  active_shader_->set_uniform("u_color_a", 0.1f, 0.1f, 0.4f, 1.0f);
-  active_shader_->set_uniform("u_color_b", 0.9f, 0.7f, 0.2f, 1.0f);
-  active_shader_->set_uniform("u_scale", 8.0f);
-
-  if (full_lighting) {
-    active_shader_->set_uniform("u_view_pos", camera_.position().x,
-                                camera_.position().y, camera_.position().z);
-    active_shader_->set_uniform("u_ambient", 0.35f, 0.38f, 0.42f);
-    active_shader_->set_uniform("u_fog_color", 0.75f, 0.80f, 0.88f);
-    active_shader_->set_uniform("u_fog_start", 60.0f);
-    active_shader_->set_uniform("u_fog_end", 140.0f);
-
-    shadow_map_.bind_depth(1);
-    active_shader_->set_uniform("u_shadow_map", 1);
-    active_shader_->set_uniform("u_light_view_proj",
-                                shadow_map_.light_view_proj().data());
-    active_shader_->set_uniform("u_shadow_enabled", 1.0f);
-    active_shader_->set_uniform("u_shadow_bias", 0.004f);
-
-    mirror_.bind_color(2);
-    active_shader_->set_uniform("u_mirror_tex", 2);
-    active_shader_->set_uniform("u_mirror_view_proj",
-                                mirror_camera_.view_projection().data());
-    active_shader_->set_uniform("u_mirror_enabled", 1.0f);
-    active_shader_->set_uniform("u_mirror_clip_enabled", 0.0f);
-
-    lights.upload(*lighting_shader_);
-  }
-
-  scene_.for_each<transform>([&](entity e, transform& t) {
-    bind_material(e, active_shader_);
-    active_shader_->set_uniform("u_model", t.matrix().data());
-    render_command::draw_indexed(cube_mesh_);
-  });
-
-  draw_crosshair(w, h);
 }
