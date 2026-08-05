@@ -12,6 +12,7 @@ uniform vec3 u_ambient;
 uniform vec3 u_fog_color;
 uniform float u_fog_start;
 uniform float u_fog_end;
+uniform float u_fog_enabled;
 
 uniform sampler2D u_shadow_map;
 uniform mat4 u_light_view_proj;
@@ -28,15 +29,17 @@ uniform float u_uv_scale;  // 0 = mesh UVs, >0 = automatic triplanar UV
 uniform vec4 u_mirror_clip;           // plane (normal, d) for the mirror pass
 uniform float u_mirror_clip_enabled;
 
-// PBR-ish map slots (bound to texture units 3..11 by the engine)
+// PBR-ish map slots (bound to texture units 3..12 by the engine)
 uniform sampler2D u_normal_map;
 uniform sampler2D u_roughness_map;
 uniform sampler2D u_emission_map;
 uniform sampler2D u_face_albedo[6];
+uniform sampler2D u_metallic_map;
 uniform float u_normal_enabled;
 uniform float u_roughness_enabled;
 uniform float u_emission_enabled;
 uniform float u_face_albedo_enabled[6];
+uniform float u_metallic_enabled;
 uniform vec3 u_emission_color;
 
 struct light_data {
@@ -51,12 +54,12 @@ uniform int u_light_count;
 
 out vec4 frag_color;
 
-vec3 calc_light(light_data l, vec3 n, vec3 view_dir, vec3 albedo, float spec_power, vec3 light_dir)
+vec3 calc_light(light_data l, vec3 n, vec3 view_dir, vec3 diff_color, vec3 spec_color, float spec_power, vec3 light_dir)
 {
   float diff = max(dot(n, light_dir), 0.0);
   vec3 half_dir = normalize(light_dir + view_dir);
   float spec = pow(max(dot(n, half_dir), 0.0), spec_power);
-  return l.type_color.rgb * l.intensity_pos.x * (diff + spec) * albedo;
+  return l.type_color.rgb * l.intensity_pos.x * (diff * diff_color + spec * spec_color);
 }
 
 // 5x5 PCF soft shadow from the directional light's shadow map.
@@ -131,7 +134,14 @@ void main()
   float roughness = u_roughness_enabled > 0.5 ? texture(u_roughness_map, uv).r : 0.5;
   float spec_power = mix(256.0, 2.0, roughness);
 
-  vec3 result = u_ambient * albedo;
+  // metallic: 0 = dielectric (plastic/paint), 1 = metal.
+  // Metals lose diffuse light, get albedo-colored specular (f0) and
+  // albedo-tinted reflections.
+  float metallic = u_metallic_enabled > 0.5 ? texture(u_metallic_map, uv).r : 0.0;
+  vec3 f0 = mix(vec3(0.04), albedo, metallic);
+  vec3 diff_color = albedo * (1.0 - metallic);
+
+  vec3 result = u_ambient * diff_color;
 
   for (int i = 0; i < u_light_count; ++i) {
     light_data l = u_lights[i];
@@ -140,7 +150,7 @@ void main()
     if (type == 0) {
       // directional (sun) with soft shadow
       vec3 light_dir = normalize(-l.range_dir.yzw);
-      result += calc_light(l, n, view_dir, albedo, spec_power, light_dir)
+      result += calc_light(l, n, view_dir, diff_color, f0, spec_power, light_dir)
               * calc_shadow(v_world_pos);
     } else if (type == 1) {
       // point
@@ -149,7 +159,7 @@ void main()
       vec3 light_dir = to_light / dist;
       float atten = max(1.0 - dist / l.range_dir.x, 0.0);
       atten *= atten;
-      result += calc_light(l, n, view_dir, albedo, spec_power, light_dir) * atten;
+      result += calc_light(l, n, view_dir, diff_color, f0, spec_power, light_dir) * atten;
     } else {
       // spot
       vec3 to_light = l.intensity_pos.yzw - v_world_pos;
@@ -159,7 +169,7 @@ void main()
       atten *= atten;
       float cos_angle = dot(light_dir, normalize(-l.range_dir.yzw));
       float spot = smoothstep(l.spot_angles.y, l.spot_angles.x, cos_angle);
-      result += calc_light(l, n, view_dir, albedo, spec_power, light_dir) * atten * spot;
+      result += calc_light(l, n, view_dir, diff_color, f0, spec_power, light_dir) * atten * spot;
     }
   }
 
@@ -168,18 +178,25 @@ void main()
     result += texture(u_emission_map, uv).rgb * u_emission_color;
   }
 
-  // planar reflection (mirror texture rendered from the reflected camera)
+  // planar reflection (mirror texture rendered from the reflected camera).
+  // Metals reflect their own albedo color, dielectrics reflect white.
   if (u_mirror_enabled > 0.5 && u_reflectivity > 0.0) {
     vec4 clip = u_mirror_view_proj * vec4(v_world_pos, 1.0);
     vec2 muv = clip.xy / clip.w * 0.5 + 0.5;
     vec3 reflected = texture(u_mirror_tex, muv).rgb;
+    reflected *= mix(vec3(1.0), albedo, metallic);
     result = mix(result, reflected, u_reflectivity);
   }
 
   // exponential fog
   float dist = length(u_view_pos - v_world_pos);
-  float fog_factor = smoothstep(u_fog_start, u_fog_end, dist);
+  float fog_factor = smoothstep(u_fog_start, u_fog_end, dist) * u_fog_enabled;
   result = mix(result, u_fog_color, fog_factor);
+
+  // Reinhard tonemapping + gamma correction: keeps HDR light intensities
+  // from blowing out and gives the image a natural, non-washed look.
+  result = result / (result + 1.0);
+  result = pow(result, vec3(1.0 / 2.2));
 
   frag_color = vec4(result, u_color.a);
 }

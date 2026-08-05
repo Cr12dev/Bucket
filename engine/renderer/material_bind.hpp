@@ -24,6 +24,7 @@ inline void bind(shader* s, const paint* p)
   std::shared_ptr<texture> normal = p ? texture_cache::load(p->normal) : nullptr;
   std::shared_ptr<texture> rough  = p ? texture_cache::load(p->roughness) : nullptr;
   std::shared_ptr<texture> emiss  = p ? texture_cache::load(p->emission) : nullptr;
+  std::shared_ptr<texture> metal  = p ? texture_cache::load(p->metallic) : nullptr;
   std::shared_ptr<texture> white  = texture_cache::white();
 
   (albedo ? albedo : white)->bind(0);
@@ -44,6 +45,10 @@ inline void bind(shader* s, const paint* p)
                  p ? p->emission_color.x : 0.0f,
                  p ? p->emission_color.y : 0.0f,
                  p ? p->emission_color.z : 0.0f);
+
+  (metal ? metal : white)->bind(12);
+  s->set_uniform("u_metallic_map", 12);
+  s->set_uniform("u_metallic_enabled", metal ? 1.0f : 0.0f);
 
   // per-face albedo overrides (texture units 6..11)
   for (int i = 0; i < 6; ++i) {

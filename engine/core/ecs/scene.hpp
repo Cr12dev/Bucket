@@ -181,7 +181,7 @@ public:
     std::FILE* f = std::fopen(path, "wb");
     if (!f) return false;
 
-    const char magic[8] = { 'B', 'U', 'C', 'K', 'L', 'E', 'V', '3' };
+    const char magic[8] = { 'B', 'U', 'C', 'K', 'L', 'E', 'V', '4' };
     std::fwrite(magic, 1, sizeof(magic), f);
 
     uint32_t entity_count = next_id_;
@@ -217,7 +217,7 @@ public:
 
     char magic[8];
     bool valid = std::fread(magic, 1, sizeof(magic), f) == sizeof(magic) &&
-                 std::memcmp(magic, "BUCKLEV3", sizeof(magic)) == 0;
+                 std::memcmp(magic, "BUCKLEV4", sizeof(magic)) == 0;
     if (!valid) {
       std::fclose(f);
       return false;
